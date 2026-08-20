@@ -140,7 +140,7 @@ public class MainActivity extends AppCompatActivity {
                 .build();
         imageAnalysis.setAnalyzer(cameraExecutor, this::analyzeFrame);
 
-        CameraSelector selector = CameraSelector.DEFAULT_FRONT_CAMERA;
+        CameraSelector selector = CameraSelector.DEFAULT_BACK_CAMERA;
         cameraProvider.unbindAll();
         try {
             cameraProvider.bindToLifecycle(this, selector, preview, imageAnalysis, videoCapture);
