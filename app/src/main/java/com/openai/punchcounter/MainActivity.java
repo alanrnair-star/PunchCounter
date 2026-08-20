@@ -145,7 +145,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             cameraProvider.bindToLifecycle(this, selector, preview, imageAnalysis, videoCapture);
         } catch (Exception backError) {
-            selector = CameraSelector.DEFAULT_FRONT_CAMERA;
+            selector = CameraSelector.DEFAULT_BACK_CAMERA;
             cameraProvider.bindToLifecycle(this, selector, preview, imageAnalysis, videoCapture);
         }
     }
