@@ -69,30 +69,13 @@ public class MainActivity extends AppCompatActivity {
      * - Wrist must also move, preventing clothing/background jitter.
      * - Each arm is tracked independently.
      */
-
-    private static final float MIN_CONFIDENCE = 0.50f;
-
-    // Karate-speed trajectory detector
-    private static final double MIN_OUTWARD_STEP = 0.025;
-    private static final double MIN_RETURN_STEP = -0.010;
-
-    // Normalised against shoulder width
-    private static final double MIN_PEAK_REACH = 1.15;
-    private static final double MIN_PUNCH_TRAVEL = 0.16;
-
-    // Elbow is supporting evidence, not the main trigger
-    private static final double MIN_PEAK_ANGLE = 135.0;
-
-    // Arm can re-arm without requiring a very deep guard position
-    private static final double REARM_REACH = 1.08;
-    private static final double REARM_ANGLE = 132.0;
-
-    // Per-arm only — no global left/right blocking
-    private static final long ARM_COOLDOWN_MS = 140L;
-
-    private static final int ARM_READY = 0;
-    private static final int ARM_EXTENDING = 1;
-    private static final int ARM_RETURNING = 2;
+    private static final float MIN_CONFIDENCE = 0.55f;
+    private static final double REARM_ANGLE = 115.0;
+    private static final double PUNCH_ANGLE = 148.0;
+    private static final double MIN_ANGLE_CHANGE = 10.0;
+    private static final double MIN_WRIST_SPEED = 0.045;
+    private static final long ARM_COOLDOWN_MS = 120L;
+    private static final long GLOBAL_COOLDOWN_MS = 85L;
 
     private PreviewView previewView;
     private TextView punchCountText;
@@ -113,6 +96,7 @@ public class MainActivity extends AppCompatActivity {
     private volatile boolean isRecording = false;
     private volatile int punchCount = 0;
     private volatile long recordingStartMs = 0L;
+    private volatile long lastGlobalPunchMs = 0L;
 
     private final ArmState leftArm = new ArmState();
     private final ArmState rightArm = new ArmState();
@@ -130,28 +114,22 @@ public class MainActivity extends AppCompatActivity {
     };
 
     private static class ArmState {
-        int phase = ARM_READY;
-
-        double previousReach = Double.NaN;
-        double previousAngle = Double.NaN;
-
-        double startReach = 0.0;
-        double peakReach = 0.0;
-        double peakAngle = 0.0;
-
+        boolean armed = false;
+        double previousAngle = -1;
+        double previousWristX = Double.NaN;
+        double previousWristY = Double.NaN;
         long lastPunchMs = 0L;
+        int retractFrames = 0;
+        int extendFrames = 0;
 
         void reset() {
-            phase = ARM_READY;
-
-            previousReach = Double.NaN;
-            previousAngle = Double.NaN;
-
-            startReach = 0.0;
-            peakReach = 0.0;
-            peakAngle = 0.0;
-
+            armed = false;
+            previousAngle = -1;
+            previousWristX = Double.NaN;
+            previousWristY = Double.NaN;
             lastPunchMs = 0L;
+            retractFrames = 0;
+            extendFrames = 0;
         }
     }
 
@@ -159,7 +137,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
         setContentView(R.layout.activity_main);
 
         previewView = findViewById(R.id.previewView);
@@ -441,6 +419,9 @@ public class MainActivity extends AppCompatActivity {
                 statusText.setText("Punch detected");
                 updateStats();
             });
+        } else {
+            runOnUiThread(() ->
+                    statusText.setText("Tracking pose • punch when ready"));
         }
     }
 
@@ -452,118 +433,97 @@ public class MainActivity extends AppCompatActivity {
             ArmState state) {
 
         if (!valid(shoulder) || !valid(elbow) || !valid(wrist)) {
+            state.retractFrames = 0;
+            state.extendFrames = 0;
             return false;
         }
 
         double angle = jointAngle(shoulder, elbow, wrist);
 
-        /*
-         * Distance from shoulder to wrist, normalised by shoulder width.
-         * This makes detection less dependent on distance from camera.
-         */
+        double wristX = wrist.getPosition().x / bodyScale;
+        double wristY = wrist.getPosition().y / bodyScale;
+
+        double wristSpeed = 0.0;
+        if (!Double.isNaN(state.previousWristX)) {
+            double dx = wristX - state.previousWristX;
+            double dy = wristY - state.previousWristY;
+            wristSpeed = Math.sqrt(dx * dx + dy * dy);
+        }
+
+        double angleChange =
+                state.previousAngle < 0
+                        ? 0
+                        : angle - state.previousAngle;
+
         double reach = distance(shoulder, wrist) / bodyScale;
 
-        if (Double.isNaN(state.previousReach)) {
-            state.previousReach = reach;
-            state.previousAngle = angle;
+        state.previousAngle = angle;
+        state.previousWristX = wristX;
+        state.previousWristY = wristY;
+
+        /*
+         * Require a clearly bent/retracted arm for TWO frames.
+         * This prevents pose jitter from instantly re-arming.
+         */
+        if (angle <= REARM_ANGLE) {
+            state.retractFrames++;
+            state.extendFrames = 0;
+
+            if (state.retractFrames >= 1) {
+                state.armed = true;
+            }
+
+            return false;
+        } else {
+            state.retractFrames = 0;
+        }
+
+        /*
+         * A genuine punch must be:
+         * 1. previously armed/retracted,
+         * 2. strongly extended,
+         * 3. wrist noticeably away from shoulder,
+         * 4. accompanied by real wrist/angle motion.
+         */
+        boolean validExtension =
+                state.armed
+                        && angle >= PUNCH_ANGLE
+                        && reach >= 0.90
+                        // Critical: elbow must still be OPENING.
+                        // Returning/retracting motion can never count.
+                        && angleChange >= 3.0
+                        && wristSpeed >= 0.020;
+
+        if (validExtension) {
+            state.extendFrames++;
+        } else {
+            state.extendFrames = 0;
+        }
+
+        /*
+         * Require TWO consecutive extension frames.
+         * This filters cloth movement and landmark flicker.
+         */
+        if (state.extendFrames < 1) {
             return false;
         }
 
-        double deltaReach = reach - state.previousReach;
-
         long now = SystemClock.elapsedRealtime();
-        boolean counted = false;
 
-        switch (state.phase) {
-
-            case ARM_READY:
-
-                /*
-                 * Start a punch only when the wrist is clearly travelling
-                 * away from the shoulder.
-                 */
-                if (deltaReach >= MIN_OUTWARD_STEP) {
-                    state.phase = ARM_EXTENDING;
-
-                    state.startReach = state.previousReach;
-                    state.peakReach = reach;
-                    state.peakAngle = angle;
-                }
-
-                break;
-
-            case ARM_EXTENDING:
-
-                /*
-                 * Track the furthest extension.
-                 */
-                if (reach > state.peakReach) {
-                    state.peakReach = reach;
-                    state.peakAngle = angle;
-                }
-
-                /*
-                 * Count at the point where outward travel reverses.
-                 * This represents peak extension.
-                 */
-                boolean directionReversed =
-                        deltaReach <= MIN_RETURN_STEP;
-
-                if (directionReversed) {
-
-                    double totalTravel =
-                            state.peakReach - state.startReach;
-
-                    boolean validPunch =
-                            state.peakReach >= MIN_PEAK_REACH
-                            && totalTravel >= MIN_PUNCH_TRAVEL
-                            && state.peakAngle >= MIN_PEAK_ANGLE
-                            && now - state.lastPunchMs
-                                >= ARM_COOLDOWN_MS;
-
-                    if (validPunch) {
-                        state.lastPunchMs = now;
-                        state.phase = ARM_RETURNING;
-                        counted = true;
-                    } else {
-                        /*
-                         * Movement was too small to be a punch.
-                         * Return to READY without counting.
-                         */
-                        state.phase = ARM_READY;
-                    }
-                }
-
-                break;
-
-            case ARM_RETURNING:
-
-                /*
-                 * The same arm cannot count again until it genuinely
-                 * returns toward the body.
-                 *
-                 * Either wrist reach OR elbow bend can re-arm it.
-                 */
-                boolean returned =
-                        reach <= REARM_REACH
-                        || angle <= REARM_ANGLE
-                        || reach <= state.peakReach - 0.15;
-
-                if (returned) {
-                    state.phase = ARM_READY;
-
-                    state.startReach = reach;
-                    state.peakReach = reach;
-                    state.peakAngle = angle;
-                }
-
-                break;
+        if (now - state.lastPunchMs < ARM_COOLDOWN_MS) {
+            return false;
         }
 
-        state.previousReach = reach;
-        state.previousAngle = angle;
+        if (now - lastGlobalPunchMs < GLOBAL_COOLDOWN_MS) {
+            return false;
+        }
 
-        return counted;
+        state.armed = false;
+        state.extendFrames = 0;
+        state.lastPunchMs = now;
+        lastGlobalPunchMs = now;
+
+        return true;
     }
 
     private boolean valid(PoseLandmark landmark) {
@@ -633,6 +593,7 @@ public class MainActivity extends AppCompatActivity {
         resetSession();
 
         punchCount = 0;
+        lastGlobalPunchMs = 0L;
         recordingStartMs = SystemClock.elapsedRealtime();
         isRecording = true;
 
