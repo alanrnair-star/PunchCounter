@@ -71,10 +71,10 @@ public class MainActivity extends AppCompatActivity {
     private boolean rightArmed = true;
 
     // Tunable prototype thresholds.
-    private static final double EXTENDED_ANGLE = 154.0;
-    private static final double REARM_ANGLE = 128.0;
-    private static final long GLOBAL_DEBOUNCE_MS = 115L;
-    private static final float MIN_LIKELIHOOD = 0.55f;
+    private static final double EXTENDED_ANGLE = 145.0;
+    private static final double REARM_ANGLE = 120.0;
+    private static final long GLOBAL_DEBOUNCE_MS = 70L;
+    private static final float MIN_LIKELIHOOD = 0.35f;
 
     private final ActivityResultLauncher<String[]> permissionLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), result -> {
