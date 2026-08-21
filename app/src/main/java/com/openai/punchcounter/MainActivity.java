@@ -489,8 +489,6 @@ public class MainActivity extends AppCompatActivity {
                 state.armed
                         && angle >= PUNCH_ANGLE
                         && reach >= 0.90
-                        // Critical: elbow must still be OPENING.
-                        // Returning/retracting motion can never count.
                         && angleChange >= 3.0
                         && wristSpeed >= 0.020;
 
