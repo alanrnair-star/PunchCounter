@@ -69,12 +69,13 @@ public class MainActivity extends AppCompatActivity {
      * - Wrist must also move, preventing clothing/background jitter.
      * - Each arm is tracked independently.
      */
-    private static final float MIN_CONFIDENCE = 0.45f;
-    private static final double REARM_ANGLE = 125.0;
-    private static final double PUNCH_ANGLE = 147.0;
-    private static final double MIN_ANGLE_CHANGE = 8.0;
-    private static final double MIN_WRIST_SPEED = 0.035;
-    private static final long ARM_COOLDOWN_MS = 90L;
+    private static final float MIN_CONFIDENCE = 0.55f;
+    private static final double REARM_ANGLE = 115.0;
+    private static final double PUNCH_ANGLE = 155.0;
+    private static final double MIN_ANGLE_CHANGE = 10.0;
+    private static final double MIN_WRIST_SPEED = 0.045;
+    private static final long ARM_COOLDOWN_MS = 220L;
+    private static final long GLOBAL_COOLDOWN_MS = 120L;
 
     private PreviewView previewView;
     private TextView punchCountText;
@@ -95,6 +96,7 @@ public class MainActivity extends AppCompatActivity {
     private volatile boolean isRecording = false;
     private volatile int punchCount = 0;
     private volatile long recordingStartMs = 0L;
+    private volatile long lastGlobalPunchMs = 0L;
 
     private final ArmState leftArm = new ArmState();
     private final ArmState rightArm = new ArmState();
@@ -117,6 +119,8 @@ public class MainActivity extends AppCompatActivity {
         double previousWristX = Double.NaN;
         double previousWristY = Double.NaN;
         long lastPunchMs = 0L;
+        int retractFrames = 0;
+        int extendFrames = 0;
 
         void reset() {
             armed = false;
@@ -124,6 +128,8 @@ public class MainActivity extends AppCompatActivity {
             previousWristX = Double.NaN;
             previousWristY = Double.NaN;
             lastPunchMs = 0L;
+            retractFrames = 0;
+            extendFrames = 0;
         }
     }
 
@@ -427,6 +433,8 @@ public class MainActivity extends AppCompatActivity {
             ArmState state) {
 
         if (!valid(shoulder) || !valid(elbow) || !valid(wrist)) {
+            state.retractFrames = 0;
+            state.extendFrames = 0;
             return false;
         }
 
@@ -436,7 +444,6 @@ public class MainActivity extends AppCompatActivity {
         double wristY = wrist.getPosition().y / bodyScale;
 
         double wristSpeed = 0.0;
-
         if (!Double.isNaN(state.previousWristX)) {
             double dx = wristX - state.previousWristX;
             double dy = wristY - state.previousWristY;
@@ -448,39 +455,73 @@ public class MainActivity extends AppCompatActivity {
                         ? 0
                         : angle - state.previousAngle;
 
+        double reach = distance(shoulder, wrist) / bodyScale;
+
         state.previousAngle = angle;
         state.previousWristX = wristX;
         state.previousWristY = wristY;
 
         /*
-         * Arm must bend again before another punch can register.
+         * Require a clearly bent/retracted arm for TWO frames.
+         * This prevents pose jitter from instantly re-arming.
          */
         if (angle <= REARM_ANGLE) {
-            state.armed = true;
+            state.retractFrames++;
+            state.extendFrames = 0;
+
+            if (state.retractFrames >= 2) {
+                state.armed = true;
+            }
+
+            return false;
+        } else {
+            state.retractFrames = 0;
+        }
+
+        /*
+         * A genuine punch must be:
+         * 1. previously armed/retracted,
+         * 2. strongly extended,
+         * 3. wrist noticeably away from shoulder,
+         * 4. accompanied by real wrist/angle motion.
+         */
+        boolean validExtension =
+                state.armed
+                        && angle >= PUNCH_ANGLE
+                        && reach >= 0.90
+                        && (wristSpeed >= MIN_WRIST_SPEED
+                            || angleChange >= MIN_ANGLE_CHANGE);
+
+        if (validExtension) {
+            state.extendFrames++;
+        } else {
+            state.extendFrames = 0;
+        }
+
+        /*
+         * Require TWO consecutive extension frames.
+         * This filters cloth movement and landmark flicker.
+         */
+        if (state.extendFrames < 2) {
             return false;
         }
 
         long now = SystemClock.elapsedRealtime();
 
-        boolean fastExtension =
-                angle >= PUNCH_ANGLE
-                        && (
-                            (angleChange >= MIN_ANGLE_CHANGE
-                                && wristSpeed >= MIN_WRIST_SPEED)
-                            ||
-                            angleChange >= 16.0
-                        );
-
-        if (state.armed
-                && fastExtension
-                && now - state.lastPunchMs >= ARM_COOLDOWN_MS) {
-
-            state.armed = false;
-            state.lastPunchMs = now;
-            return true;
+        if (now - state.lastPunchMs < ARM_COOLDOWN_MS) {
+            return false;
         }
 
-        return false;
+        if (now - lastGlobalPunchMs < GLOBAL_COOLDOWN_MS) {
+            return false;
+        }
+
+        state.armed = false;
+        state.extendFrames = 0;
+        state.lastPunchMs = now;
+        lastGlobalPunchMs = now;
+
+        return true;
     }
 
     private boolean valid(PoseLandmark landmark) {
@@ -550,6 +591,7 @@ public class MainActivity extends AppCompatActivity {
         resetSession();
 
         punchCount = 0;
+        lastGlobalPunchMs = 0L;
         recordingStartMs = SystemClock.elapsedRealtime();
         isRecording = true;
 

@@ -24,7 +24,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="PUNCH COUNT - TEST 13"
+            android:text="PUNCH COUNT"
             android:textColor="#FFFFFF"
             android:textStyle="bold"
             android:textSize="18sp" />
@@ -76,6 +76,7 @@
     <LinearLayout
         android:id="@+id/controlsPanel"
         android:layout_width="match_parent"
+        android:layout_marginBottom="48dp"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
         android:orientation="horizontal"
@@ -92,7 +93,8 @@
             android:layout_weight="1"
             android:layout_marginEnd="10dp"
             android:text="RESET"
-            android:textSize="16sp" />
+            android:maxLines="1"
+            android:textSize="14sp" />
 
         <Button
             android:id="@+id/recordButton"
@@ -101,7 +103,8 @@
             android:layout_weight="1"
             android:layout_marginStart="10dp"
             android:text="START RECORDING"
-            android:textSize="16sp" />
+            android:maxLines="1"
+            android:textSize="14sp" />
     </LinearLayout>
 
 </FrameLayout>
