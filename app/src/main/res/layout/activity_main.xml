@@ -63,7 +63,6 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|center_horizontal"
-        android:layout_marginBottom="110dp"
         android:paddingLeft="18dp"
         android:paddingRight="18dp"
         android:paddingTop="10dp"
@@ -76,7 +75,6 @@
     <LinearLayout
         android:id="@+id/controlsPanel"
         android:layout_width="match_parent"
-        android:layout_marginBottom="48dp"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
         android:orientation="horizontal"
