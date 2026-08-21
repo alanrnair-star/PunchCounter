@@ -75,7 +75,7 @@ public class MainActivity extends AppCompatActivity {
     private static final double MIN_ANGLE_CHANGE = 10.0;
     private static final double MIN_WRIST_SPEED = 0.045;
     private static final long ARM_COOLDOWN_MS = 120L;
-    private static final long GLOBAL_COOLDOWN_MS = 85L;
+    private static final long GLOBAL_COOLDOWN_MS = 100L;
 
     private PreviewView previewView;
     private TextView punchCountText;
@@ -489,8 +489,8 @@ public class MainActivity extends AppCompatActivity {
                 state.armed
                         && angle >= PUNCH_ANGLE
                         && reach >= 0.90
-                        && angleChange >= 3.0
-                        && wristSpeed >= 0.020;
+                        && (wristSpeed >= MIN_WRIST_SPEED
+                            || angleChange >= MIN_ANGLE_CHANGE);
 
         if (validExtension) {
             state.extendFrames++;
