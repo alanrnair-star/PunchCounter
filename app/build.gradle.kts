@@ -38,6 +38,7 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:$camerax")
     implementation("androidx.camera:camera-view:$camerax")
     implementation("androidx.camera:camera-video:$camerax")
+    implementation("androidx.camera:camera-effects:$camerax")
 
     implementation("com.google.mlkit:pose-detection:18.0.0-beta5")
 }
