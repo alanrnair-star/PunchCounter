@@ -71,11 +71,11 @@ public class MainActivity extends AppCompatActivity {
      */
     private static final float MIN_CONFIDENCE = 0.55f;
     private static final double REARM_ANGLE = 115.0;
-    private static final double PUNCH_ANGLE = 155.0;
+    private static final double PUNCH_ANGLE = 148.0;
     private static final double MIN_ANGLE_CHANGE = 10.0;
     private static final double MIN_WRIST_SPEED = 0.045;
-    private static final long ARM_COOLDOWN_MS = 220L;
-    private static final long GLOBAL_COOLDOWN_MS = 120L;
+    private static final long ARM_COOLDOWN_MS = 120L;
+    private static final long GLOBAL_COOLDOWN_MS = 70L;
 
     private PreviewView previewView;
     private TextView punchCountText;
@@ -469,7 +469,7 @@ public class MainActivity extends AppCompatActivity {
             state.retractFrames++;
             state.extendFrames = 0;
 
-            if (state.retractFrames >= 2) {
+            if (state.retractFrames >= 1) {
                 state.armed = true;
             }
 
@@ -502,7 +502,7 @@ public class MainActivity extends AppCompatActivity {
          * Require TWO consecutive extension frames.
          * This filters cloth movement and landmark flicker.
          */
-        if (state.extendFrames < 2) {
+        if (state.extendFrames < 1) {
             return false;
         }
 
